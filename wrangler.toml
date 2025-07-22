@@ -1,5 +1,6 @@
 name = "vorten-dashboard"
 compatibility_date = "2025-01-15"
+compatibility_flags = ["nodejs_compat"]
 main = "dist/_worker.js"
 
 # Configuración de assets estáticos
