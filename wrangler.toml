@@ -1,0 +1,7 @@
+name = "vorten-dashboard"
+compatibility_date = "2025-01-15"
+main = "dist/_worker.js"
+
+# Configuración de assets estáticos
+[site]
+bucket = "./dist"
