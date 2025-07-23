@@ -1,0 +1,302 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { authClient } from '../lib/auth-client';
+
+// Check if user is authenticated
+const session = () => {
+  console.log('Dashboard: Checking session...');
+  console.log('Dashboard: Astro.locals.session:', Astro.locals.session);
+  console.log('Dashboard: Astro.locals.user:', Astro.locals.user);
+  
+  if (Astro.locals.session) {
+    console.log('Dashboard: Session found, returning session');
+    return Astro.locals.session;
+  } else {
+    console.log('Dashboard: No session found, redirecting to login');
+    // Redirect to login page if not authenticated
+    return Astro.redirect("/login");
+  }
+}
+
+const userSession = session();
+
+// Type guard to check if userSession is a Response (redirect)
+if (userSession instanceof Response) {
+  console.log('Dashboard: Redirecting to login');
+  return userSession;
+}
+
+console.log('Dashboard: User session:', userSession);
+---
+
+<Layout title="Dashboard - Tradit">
+  <main class="dashboard">
+    <header class="dashboard-header">
+      <h1>Dashboard de Tradit</h1>
+      <div class="user-info">
+        <span>Bienvenido, {userSession.user?.name || userSession.user?.phoneNumber}</span>
+        <button id="logout-btn" class="logout-btn">Cerrar Sesión</button>
+      </div>
+    </header>
+
+    <div class="dashboard-content">
+      <div class="card">
+        <h2>Información del Usuario</h2>
+        <p><strong>Teléfono:</strong> {userSession.user?.phoneNumber}</p>
+        <p><strong>ID:</strong> {userSession.user?.id}</p>
+        <p><strong>Token Tradit:</strong> {userSession.traditToken ? '✅ Configurado' : '❌ No configurado'}</p>
+      </div>
+
+      <div class="card">
+        <h2>Passkey</h2>
+        <p>Configura un passkey para acceder sin contraseña en el futuro.</p>
+        <button id="add-passkey-btn" class="btn-primary">Agregar Passkey</button>
+        <button id="list-passkeys-btn" class="btn-secondary">Ver Passkeys</button>
+      </div>
+
+      <div class="card">
+        <h2>Acceso Rápido con Passkey</h2>
+        <p>Prueba el acceso rápido con tu passkey configurado.</p>
+        <button id="signin-passkey-btn" class="btn-primary">Iniciar Sesión con Passkey</button>
+      </div>
+    </div>
+  </main>
+</Layout>
+
+<script>
+  import { authClient } from '../lib/auth-client';
+
+  const logoutBtn = document.getElementById('logout-btn') as HTMLButtonElement;
+  const addPasskeyBtn = document.getElementById('add-passkey-btn') as HTMLButtonElement;
+  const listPasskeysBtn = document.getElementById('list-passkeys-btn') as HTMLButtonElement;
+  const signinPasskeyBtn = document.getElementById('signin-passkey-btn') as HTMLButtonElement;
+
+  logoutBtn.addEventListener('click', async () => {
+    try {
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (response.ok) {
+        window.location.href = '/login';
+      } else {
+        alert('Error al cerrar sesión');
+      }
+    } catch (error) {
+      console.error('Error al cerrar sesión:', error);
+      alert('Error al cerrar sesión');
+    }
+  });
+
+  addPasskeyBtn.addEventListener('click', async () => {
+    try {
+      console.log('Testing passkey registration...');
+      
+      // Try the registration
+      const response = await fetch('/api/auth/passkey/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      console.log('Registration response status:', response.status);
+
+      if (response.ok) {
+        const options = await response.json();
+        console.log('Registration options:', options);
+        
+        // Convert arrays back to Uint8Array for WebAuthn API
+        const webauthnOptions = {
+          ...options,
+          challenge: new Uint8Array(options.challenge),
+          user: {
+            ...options.user,
+            id: new Uint8Array(options.user.id)
+          }
+        };
+        
+        console.log('WebAuthn options:', webauthnOptions);
+        
+        // Create credentials
+        const credential = await navigator.credentials.create({
+          publicKey: webauthnOptions
+        });
+
+        console.log('Credential created:', credential);
+
+        // Send the credential to the server
+        const verifyResponse = await fetch('/api/auth/passkey/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            credential: credential
+          })
+        });
+
+        if (verifyResponse.ok) {
+          alert('Passkey agregado exitosamente');
+        } else {
+          alert('Error al verificar passkey');
+        }
+      } else {
+        const errorData = await response.json();
+        alert('Error al generar opciones de passkey: ' + (errorData.error || 'Error desconocido'));
+      }
+    } catch (error) {
+      console.error('Error al agregar passkey:', error);
+      alert('Error al configurar passkey: ' + (error instanceof Error ? error.message : 'Error desconocido'));
+    }
+  });
+
+  listPasskeysBtn.addEventListener('click', async () => {
+    try {
+      const response = await fetch('/api/auth/passkey/list');
+      
+      if (response.ok) {
+        const passkeys = await response.json();
+        alert(`Tienes ${passkeys.length} passkey(s) configurado(s)`);
+      } else {
+        alert('Error al listar passkeys');
+      }
+    } catch (error) {
+      console.error('Error al listar passkeys:', error);
+      alert('Error al listar passkeys');
+    }
+  });
+
+  signinPasskeyBtn.addEventListener('click', async () => {
+    try {
+      // Get authentication options
+      const response = await fetch('/api/auth/passkey/authenticate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (response.ok) {
+        const options = await response.json();
+        
+        // Convert arrays back to Uint8Array for WebAuthn API
+        const webauthnOptions = {
+          ...options,
+          challenge: new Uint8Array(options.challenge)
+        };
+        
+        // Get credentials
+        const credential = await navigator.credentials.get({
+          publicKey: webauthnOptions
+        });
+
+        // Send the credential to the server
+        const verifyResponse = await fetch('/api/auth/passkey/authenticate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            credential: credential
+          })
+        });
+
+        if (verifyResponse.ok) {
+          window.location.href = '/dashboard';
+        } else {
+          alert('Error al verificar passkey');
+        }
+      } else {
+        alert('Error al generar opciones de autenticación');
+      }
+    } catch (error) {
+      console.error('Error al iniciar sesión con passkey:', error);
+      alert('Error al iniciar sesión con passkey: ' + (error instanceof Error ? error.message : 'Error desconocido'));
+    }
+  });
+</script>
+
+<style>
+  .dashboard {
+    min-height: 100vh;
+    background: #f5f5f5;
+  }
+
+  .dashboard-header {
+    background: white;
+    padding: 1rem 2rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .dashboard-header h1 {
+    margin: 0;
+    color: #333;
+  }
+
+  .user-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .logout-btn {
+    padding: 0.5rem 1rem;
+    background: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .logout-btn:hover {
+    background: #c82333;
+  }
+
+  .dashboard-content {
+    padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+  }
+
+  .card {
+    background: white;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+
+  .card h2 {
+    margin-top: 0;
+    color: #333;
+    margin-bottom: 1rem;
+  }
+
+  .btn-primary {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-right: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .btn-primary:hover {
+    background: #0056b3;
+  }
+
+  .btn-secondary {
+    background: #6c757d;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-bottom: 0.5rem;
+  }
+
+  .btn-secondary:hover {
+    background: #545b62;
+  }
+</style> 

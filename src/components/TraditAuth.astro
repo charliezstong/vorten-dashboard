@@ -1,0 +1,341 @@
+---
+import { authClient } from '../lib/auth-client';
+---
+
+<div class="auth-container">
+  <div class="auth-form">
+    <h2>Iniciar Sesión con Tradit</h2>
+    
+    <form id="tradit-auth-form" class="auth-form-content">
+      <!-- Step 1: Phone Number -->
+      <div class="form-group" id="phone-group">
+        <label for="phoneNumber">Número de Teléfono</label>
+        <input 
+          type="tel" 
+          id="phoneNumber" 
+          name="phoneNumber" 
+          placeholder="573157095526"
+          required
+        />
+        <button type="submit" id="check-phone-btn">Verificar Teléfono</button>
+      </div>
+
+      <!-- Step 2: Invitation Code (shown if user doesn't exist) -->
+      <div class="form-group" id="invitation-group" style="display: none;">
+        <label for="invitationCode">Código de Invitación</label>
+        <input 
+          type="text" 
+          id="invitationCode" 
+          name="invitationCode" 
+          placeholder="C1D4B16B"
+        />
+        <button type="button" id="verify-invitation-btn">Verificar Invitación</button>
+      </div>
+
+      <!-- Step 3: OTP -->
+      <div class="form-group" id="otp-group" style="display: none;">
+        <label for="otpCode">Código OTP</label>
+        <input 
+          type="text" 
+          id="otpCode" 
+          name="otpCode" 
+          placeholder="897476"
+          maxlength="6"
+        />
+        <button type="button" id="send-otp-btn">Enviar OTP</button>
+        <button type="button" id="verify-otp-btn">Verificar OTP</button>
+      </div>
+    </form>
+
+    <div id="status-message"></div>
+  </div>
+</div>
+
+<script>
+  import { authClient } from '../lib/auth-client';
+
+  const form = document.getElementById('tradit-auth-form') as HTMLFormElement;
+  const phoneInput = document.getElementById('phoneNumber') as HTMLInputElement;
+  const invitationInput = document.getElementById('invitationCode') as HTMLInputElement;
+  const otpInput = document.getElementById('otpCode') as HTMLInputElement;
+  
+  const phoneGroup = document.getElementById('phone-group') as HTMLDivElement;
+  const invitationGroup = document.getElementById('invitation-group') as HTMLDivElement;
+  const otpGroup = document.getElementById('otp-group') as HTMLDivElement;
+  
+  const checkPhoneBtn = document.getElementById('check-phone-btn') as HTMLButtonElement;
+  const verifyInvitationBtn = document.getElementById('verify-invitation-btn') as HTMLButtonElement;
+  const sendOtpBtn = document.getElementById('send-otp-btn') as HTMLButtonElement;
+  const verifyOtpBtn = document.getElementById('verify-otp-btn') as HTMLButtonElement;
+  
+  const statusMessage = document.getElementById('status-message') as HTMLDivElement;
+
+  let currentStep = 'phone'; // phone, invitation, otp
+  let phoneNumber = '';
+  let invitationCode = '';
+
+  function showStatus(message: string, isError = false) {
+    statusMessage.textContent = message;
+    statusMessage.className = isError ? 'error' : 'success';
+  }
+
+  async function checkPhone() {
+    phoneNumber = phoneInput.value;
+
+    if (!phoneNumber) {
+      showStatus('Por favor ingresa tu número de teléfono', true);
+      return;
+    }
+
+    try {
+      // Check if phone number exists in the system
+      const response = await fetch('/api/v1/auth/check-phone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneNumber })
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.exists) {
+        // User exists, go directly to OTP
+        showStatus('Usuario encontrado. Enviando OTP...');
+        currentStep = 'otp';
+        invitationGroup.style.display = 'none';
+        otpGroup.style.display = 'block';
+        checkPhoneBtn.style.display = 'none';
+        sendOtpBtn.style.display = 'block';
+        verifyOtpBtn.style.display = 'block';
+        
+        // Send OTP automatically
+        await sendOTP();
+      } else {
+        // User doesn't exist, ask for invitation code
+        showStatus('Usuario no encontrado. Ingresa tu código de invitación.');
+        currentStep = 'invitation';
+        invitationGroup.style.display = 'block';
+        checkPhoneBtn.style.display = 'none';
+        verifyInvitationBtn.style.display = 'block';
+      }
+    } catch (error) {
+      showStatus('Error al verificar teléfono', true);
+    }
+  }
+
+  async function verifyInvitation() {
+    invitationCode = invitationInput.value;
+
+    if (!invitationCode) {
+      showStatus('Por favor ingresa el código de invitación', true);
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/v1/auth/verify-invitation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invitationCode })
+      });
+
+      if (response.ok) {
+        showStatus('Código de invitación válido. Enviando OTP...');
+        currentStep = 'otp';
+        invitationGroup.style.display = 'none';
+        otpGroup.style.display = 'block';
+        verifyInvitationBtn.style.display = 'none';
+        sendOtpBtn.style.display = 'block';
+        verifyOtpBtn.style.display = 'block';
+        
+        // Send OTP automatically
+        await sendOTP();
+      } else {
+        showStatus('Código de invitación inválido o expirado', true);
+      }
+    } catch (error) {
+      showStatus('Error al verificar invitación', true);
+    }
+  }
+
+  async function sendOTP() {
+    try {
+      const response = await fetch('/api/v1/auth/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneNumber })
+      });
+
+      if (response.ok) {
+        showStatus('OTP enviado al número de teléfono');
+      } else {
+        showStatus('Error al enviar OTP', true);
+      }
+    } catch (error) {
+      showStatus('Error al enviar OTP', true);
+    }
+  }
+
+  async function verifyOTP() {
+    const otpCode = otpInput.value;
+
+    if (!otpCode) {
+      showStatus('Por favor ingresa el código OTP', true);
+      return;
+    }
+
+    try {
+      showStatus('Verificando OTP...');
+      
+      // Use the original tradit-login endpoint
+      const response = await fetch('/api/auth/tradit-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phoneNumber,
+          invitationCode: invitationCode || '',
+          otpCode
+        })
+      });
+
+      if (response.ok) {
+        showStatus('¡Autenticación exitosa! Redirigiendo...');
+        console.log('Login: Authentication successful, redirecting to dashboard...');
+        
+        // Check if cookie was set
+        setTimeout(() => {
+          console.log('Login: Checking cookies...');
+          console.log('Login: All cookies:', document.cookie);
+          console.log('Login: tradit-session cookie:', document.cookie.includes('tradit-session'));
+          console.log('Login: test-cookie:', document.cookie.includes('test-cookie'));
+          
+          // Parse cookies manually
+          const cookies = document.cookie.split(';').reduce((acc, cookie) => {
+            const [key, value] = cookie.trim().split('=');
+            acc[key] = value;
+            return acc;
+          }, {} as Record<string, string>);
+          
+          console.log('Login: Parsed cookies:', cookies);
+          console.log('Login: tradit-session value:', cookies['tradit-session']);
+        }, 500);
+        
+        // Redirect to dashboard
+        setTimeout(() => {
+          console.log('Login: Executing redirect to /dashboard');
+          window.location.href = '/dashboard';
+        }, 1000);
+      } else {
+        const errorText = await response.text();
+        let errorMessage = 'Error desconocido';
+        try {
+          const error = JSON.parse(errorText);
+          errorMessage = error.error || error.message || 'Error desconocido';
+        } catch {
+          errorMessage = errorText || 'Error desconocido';
+        }
+        showStatus('Error al verificar OTP: ' + errorMessage, true);
+      }
+    } catch (error) {
+      console.error('Error al verificar OTP:', error);
+      showStatus('Error al verificar OTP', true);
+    }
+  }
+
+  // Event listeners
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (currentStep === 'phone') {
+      checkPhone();
+    }
+  });
+
+  verifyInvitationBtn.addEventListener('click', verifyInvitation);
+  sendOtpBtn.addEventListener('click', sendOTP);
+  verifyOtpBtn.addEventListener('click', verifyOTP);
+</script>
+
+<style>
+  .auth-container {
+    max-width: 400px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+
+  .auth-form {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 2rem;
+  }
+
+  .auth-form h2 {
+    text-align: center;
+    margin-bottom: 2rem;
+    color: #333;
+  }
+
+  .form-group {
+    margin-bottom: 1rem;
+  }
+
+  .form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: #555;
+  }
+
+  .form-group input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .form-group input:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+  }
+
+  button {
+    width: 100%;
+    padding: 0.75rem;
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 1rem;
+    cursor: pointer;
+    margin-bottom: 0.5rem;
+  }
+
+  button:hover {
+    background: #0056b3;
+  }
+
+  button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+  }
+
+  #status-message {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    border-radius: 4px;
+    text-align: center;
+  }
+
+  .success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+  }
+
+  .error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+  }
+</style> 

@@ -1,0 +1,168 @@
+---
+import Layout from '../layouts/Layout.astro';
+import TraditAuth from '../components/TraditAuth.astro';
+import { authClient } from '../lib/auth-client';
+---
+
+<Layout title="Login - Tradit Dashboard">
+  <main>
+    <div class="auth-container">
+      <div class="auth-form">
+        <h2>Iniciar Sesión con Tradit</h2>
+        
+        <!-- Passkey Sign In -->
+        <div class="passkey-section">
+          <h3>🔐 Acceso Rápido con Passkey</h3>
+          <p>Si ya tienes un passkey configurado, puedes acceder directamente:</p>
+          <button id="passkey-signin-btn" class="btn-passkey">
+            Iniciar Sesión con Passkey
+          </button>
+        </div>
+
+        <div class="divider">
+          <span>o</span>
+        </div>
+
+        <!-- Traditional Login -->
+        <div class="traditional-section">
+          <h3>📱 Acceso Tradicional</h3>
+          <TraditAuth />
+        </div>
+      </div>
+    </div>
+  </main>
+</Layout>
+
+<script>
+  import { authClient } from '../lib/auth-client';
+
+  const passkeySigninBtn = document.getElementById('passkey-signin-btn') as HTMLButtonElement;
+
+  // Passkey Sign In
+  passkeySigninBtn.addEventListener('click', async () => {
+    try {
+      // Get authentication options
+      const response = await fetch('/api/auth/passkey/authenticate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (response.ok) {
+        const options = await response.json();
+        
+        // Convert arrays back to Uint8Array for WebAuthn API
+        const webauthnOptions = {
+          ...options,
+          challenge: new Uint8Array(options.challenge)
+        };
+        
+        // Get credentials
+        const credential = await navigator.credentials.get({
+          publicKey: webauthnOptions
+        });
+
+        // Send the credential to the server
+        const verifyResponse = await fetch('/api/auth/passkey/authenticate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            credential: credential
+          })
+        });
+
+        if (verifyResponse.ok) {
+          window.location.href = '/dashboard';
+        } else {
+          alert('Error al verificar passkey. Intenta el método tradicional.');
+        }
+      } else {
+        alert('No hay passkeys configurados. Usa el método tradicional.');
+      }
+    } catch (error) {
+      console.error('Error al iniciar sesión con passkey:', error);
+      alert('Error al iniciar sesión con passkey. Intenta el método tradicional.');
+    }
+  });
+</script>
+
+<style>
+  main {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  }
+
+  .auth-container {
+    max-width: 500px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+
+  .auth-form {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 2rem;
+  }
+
+  .auth-form h2 {
+    text-align: center;
+    margin-bottom: 2rem;
+    color: #333;
+  }
+
+  .passkey-section {
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+
+  .passkey-section h3 {
+    margin-bottom: 0.5rem;
+    color: #333;
+  }
+
+  .btn-passkey {
+    width: 100%;
+    padding: 1rem;
+    background: #28a745;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 1.1rem;
+    cursor: pointer;
+    margin-bottom: 1rem;
+  }
+
+  .btn-passkey:hover {
+    background: #218838;
+  }
+
+  .divider {
+    text-align: center;
+    margin: 2rem 0;
+    position: relative;
+  }
+
+  .divider::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: #ddd;
+  }
+
+  .divider span {
+    background: white;
+    padding: 0 1rem;
+    color: #666;
+  }
+
+  .traditional-section h3 {
+    margin-bottom: 1rem;
+    color: #333;
+  }
+</style> 
